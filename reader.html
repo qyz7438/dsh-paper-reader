@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>论文阅读器</title>
+<script>
+/* 主题预判：首帧前定调，避免闪烁。优先级 URL ?theme= > localStorage > prefers-color-scheme */
+(function () {
+  /* 固定深色（2026-09-21 用户要求移除明/暗切换） */
+  document.documentElement.dataset.theme = 'dark';
+  try { localStorage.setItem('dsh-reader-theme', 'dark'); } catch (e) {}
+})();
+</script>
+<style>
+  :root {
+    --paper: #f7f4ee;
+    --paper-panel: #fdfbf7;
+    --ink: #2b2926;
+    --ink-dim: #7a756c;
+    --line: #e3ddd1;
+    --accent: #34618f;
+    --accent-soft: #e7eef5;
+    --danger: #a5452e;
+    --ok: #2f6b4f;
+    --btn-bg: #ffffff;
+    --field-bg: #ffffff;
+  }
+  html[data-theme="dark"] {
+    --paper: #16181d;
+    --paper-panel: #1d2027;
+    --ink: #e6e6e6;
+    --ink-dim: #9aa0ab;
+    --line: #2a2e35;
+    --accent: #7aa7e0;
+    --accent-soft: #26324a;
+    --danger: #d07a63;
+    --ok: #63b58c;
+    --btn-bg: #22262e;
+    --field-bg: #1d2027;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "Segoe UI", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    row-gap: 6px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    background: var(--paper-panel);
+    border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+    min-height: 46px;
+  }
+  #docTitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+  #networkContext {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1 0 100%;
+    min-width: 0;
+    color: var(--ink-dim);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  #networkContext a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  #networkContext .network-chip {
+    display: inline-block;
+    max-width: 230px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .switch-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-dim);
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .switch-label input { accent-color: var(--accent); cursor: pointer; }
+
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--btn-bg);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    line-height: 1.4;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #2b5278; color: #fff; }
+  html[data-theme="dark"] button.primary:hover:not(:disabled) { background: #5b8ecf; color: #fff; }
+
+  #readToggle.read { color: var(--ok); border-color: var(--ok); }
+  #readToggle.unread { color: var(--ink-dim); }
+
+  /* ---------- 主区域 ---------- */
+  #main {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+  }
+  .pane {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .pane:last-child { border-right: none; }
+  .pane[hidden] { display: none; }
+  .pane-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    row-gap: 4px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    background: var(--paper-panel);
+    border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+  }
+  .pane-toolbar .spacer { flex: 1 1 auto; }
+  .page-input {
+    width: 48px;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 3px 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    text-align: center;
+    background: var(--field-bg);
+    color: var(--ink);
+  }
+  .page-total { color: var(--ink-dim); font-size: 13px; }
+  .zoom-label { color: var(--ink-dim); font-size: 12px; min-width: 44px; text-align: center; }
+  .pane-tag {
+    font-size: 11px;
+    color: var(--ink-dim);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 6px;
+    user-select: none;
+  }
+
+  .viewport {
+    flex: 1 1 auto;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 16px;
+    background: var(--paper);
+  }
+  .page-wrap { position: relative; flex: 0 0 auto; }
+  .viewport canvas {
+    display: block;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,.18);
+  }
+
+  /* ---------- pdf.js 文本层（可选中/复制） ---------- */
+  .textLayer {
+    --scale-round-x: 1px;
+    --scale-round-y: 1px;
+    --total-scale-factor: calc(var(--scale-factor, 1) * var(--user-unit, 1));
+    position: absolute;
+    inset: 0;
+    overflow: clip;
+    opacity: 1;
+    line-height: 1;
+    text-align: initial;
+    text-size-adjust: none;
+    forced-color-adjust: none;
+    transform-origin: 0 0;
+    caret-color: transparent;
+  }
+  .textLayer :is(span, br) {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0 0;
+  }
+  .textLayer ::selection {
+    background: rgba(70, 120, 200, .45);
+    color: transparent;
+  }
+
+  /* ---------- 栏宽拖拽手柄 ---------- */
+  #splitter {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    background: var(--paper-panel);
+    user-select: none;
+    touch-action: none;
+    z-index: 5;
+  }
+  #splitter:hover, #splitter.dragging { background: var(--accent); }
+  #splitter[hidden] { display: none; }
+
+  /* ---------- 选区浮动按钮 ---------- */
+  #selBubble {
+    position: fixed;
+    z-index: 1000;
+    display: flex;
+    gap: 6px;
+    padding: 5px;
+    background: var(--paper-panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.28);
+  }
+  #selBubble[hidden] { display: none; }
+  #selBubble button { font-size: 12px; padding: 3px 8px; }
+  .pane-status {
+    padding: 24px;
+    color: var(--ink-dim);
+    font-size: 13px;
+    line-height: 1.8;
+    max-width: 560px;
+  }
+  .pane-status.error { color: var(--danger); }
+  .pane-status .detail {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    word-break: break-all;
+    font-family: Consolas, monospace;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="docTitle">论文阅读器</div>
+  <div class="topbar-group">
+    <label class="switch-label" title="一栏翻页时，另一栏跳到相同页码">
+      <input type="checkbox" id="syncToggle" checked> 页码同步
+    </label>
+    <label class="switch-label" title="在 PDF 栏上滚轮翻页（页面放大超出视口时先滚页面内部，滚到边缘再翻页）">
+      <input type="checkbox" id="wheelToggle" checked> 滚轮翻页
+    </label>
+    <button id="readToggle" class="unread" disabled>标记已读</button>
+  </div>
+  <div id="networkContext" hidden></div>
+</div>
+
+<div id="main">
+  <div class="pane" id="pane-left">
+    <div class="pane-toolbar">
+      <span class="pane-tag">原文</span>
+      <button class="btn-prev">上一页</button>
+      <button class="btn-next">下一页</button>
+      <input class="page-input" type="text" inputmode="numeric" value="-">
+      <span class="page-total">/ -</span>
+      <span class="spacer"></span>
+      <button class="btn-zoom-out" title="缩小">−</button>
+      <span class="zoom-label">适应宽度</span>
+      <button class="btn-zoom-in" title="放大">+</button>
+      <button class="btn-fit" title="适应宽度">适应宽度</button>
+    </div>
+    <div class="viewport"><div class="pane-status">正在载入…</div></div>
+  </div>
+  <div id="splitter" hidden title="拖拽调整中英两栏宽度"></div>
+  <div class="pane" id="pane-right" hidden>
+    <div class="pane-toolbar">
+      <span class="pane-tag">中文镜像</span>
+      <button class="btn-prev">上一页</button>
+      <button class="btn-next">下一页</button>
+      <input class="page-input" type="text" inputmode="numeric" value="-">
+      <span class="page-total">/ -</span>
+      <span class="spacer"></span>
+      <button class="btn-zoom-out" title="缩小">−</button>
+      <span class="zoom-label">适应宽度</span>
+      <button class="btn-zoom-in" title="放大">+</button>
+      <button class="btn-fit" title="适应宽度">适应宽度</button>
+    </div>
+    <div class="viewport"><div class="pane-status">正在载入…</div></div>
+  </div>
+</div>
+
+<div id="selBubble" hidden>
+  <button id="selSend" class="primary">发送到会话</button>
+  <button id="selCopy">复制</button>
+</div>
+
+<script type="module">
+import * as pdfjsLib from './vendor/pdfjs/pdf.mjs';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdfjs/pdf.worker.mjs';
+
+/* ---------- 主题（固定深色） ---------- */
+const DSH_READER_PARENT_ORIGIN = typeof window.__DSH_READER_PARENT_ORIGIN__ === 'string'
+  ? window.__DSH_READER_PARENT_ORIGIN__ : '';
+window.addEventListener('message', (e) => {
+  if (!DSH_READER_PARENT_ORIGIN || e.origin !== DSH_READER_PARENT_ORIGIN || e.source !== parent) return;
+  const d = e.data;
+  if (d && d.source === 'dsh-reader-panel' && d.type === 'theme') {
+    document.documentElement.dataset.theme = 'dark';
+  }
+});
+
+/* ---------- 参数解析 ---------- */
+const params = new URLSearchParams(location.search);
+function dshReaderFollowModeForSearch(search) {
+  const query = new URLSearchParams(search);
+  return !query.has('left') && !query.has('right');
+}
+const followMode = dshReaderFollowModeForSearch(location.search); // No static PDFs: follow /current.
+let leftPath = params.get('left') || '';
+let rightPath = params.get('right') || '';
+let currentTitle = params.get('title') || '';
+let currentThinkingIdentity = null;
+
+function bridgeFetch(path, options = {}) {
+  return fetch(path, { ...options, credentials: 'include', cache: options.cache || 'no-store' });
+}
+
+function fileBaseName(p) {
+  if (!p) return '';
+  const norm = p.replace(/\\/g, '/');
+  return norm.substring(norm.lastIndexOf('/') + 1);
+}
+function stripExt(name) {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.substring(0, i) : name;
+}
+function paperQueryName() {
+  // query 用 title 或 left 文件名去掉“论文-”前缀和扩展名
+  if (currentTitle && currentTitle.trim()) return currentTitle.trim();
+  let base = stripExt(fileBaseName(leftPath));
+  if (base.startsWith('论文-')) base = base.substring(3);
+  return base;
+}
+function dshReaderThinkingExpectedRevision(current) {
+  if (!current || typeof current !== 'object') return null;
+  for (const value of [current.revision, current.updatedAt]) {
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+function dshReaderThinkingPayloadFor(current) {
+  if (!current || typeof current.paper_id !== 'string' || current.paper_id.length === 0
+    || typeof current.left !== 'string' || current.left.length === 0) return null;
+  const expectedRevision = dshReaderThinkingExpectedRevision(current);
+  if (expectedRevision === null) return null;
+  const query = typeof current.slug === 'string' && current.slug.length > 0
+    ? current.slug : (typeof current.title === 'string' ? current.title : '');
+  if (!query) return null;
+  return {
+    paper_id: current.paper_id,
+    ...(typeof current.slug === 'string' && current.slug.length > 0 ? { slug: current.slug } : {}),
+    left: current.left,
+    query,
+    expectedRevision,
+  };
+}
+function currentThinkingPayload() {
+  return dshReaderThinkingPayloadFor(currentThinkingIdentity);
+}
+function dshReaderFollowCurrentPayload(cur) {
+  if (!cur || typeof cur !== 'object' || typeof cur.left !== 'string' || cur.left.length === 0) return null;
+  return { identity: cur, network: cur.network && typeof cur.network === 'object' ? cur.network : null };
+}
+function applyTitle(title) {
+  currentTitle = title || '';
+  const t = currentTitle || stripExt(fileBaseName(leftPath)) || '论文阅读器';
+  document.getElementById('docTitle').textContent = t;
+  document.title = t;
+}
+
+const networkContext = document.getElementById('networkContext');
+function appendNetworkText(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  networkContext.appendChild(span);
+}
+function dshReaderNavigateObsidianHref(href) {
+  if (typeof href !== 'string' || !href.startsWith('obsidian://')) return Promise.reject(new Error('invalid_navigation'));
+  return bridgeFetch('/obsidian', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ href }),
+  }).then(async response => {
+    const body = await response.json();
+    if (!response.ok || body.ok !== true) throw new Error('navigation_failed');
+    return true;
+  });
+}
+function appendNetworkLink(label, href, title) {
+  if (typeof href !== 'string' || href.length === 0) return;
+  const link = document.createElement('a');
+  link.className = 'network-chip';
+  link.href = href;
+  link.textContent = label;
+  if (typeof title === 'string') link.title = title;
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    if (link.getAttribute('aria-busy') === 'true') return;
+    link.setAttribute('aria-busy', 'true');
+    dshReaderNavigateObsidianHref(link.href).then(() => {
+      const status = document.getElementById('networkNavigationStatus');
+      if (status) status.textContent = '';
+    }).catch(() => {
+      const status = document.getElementById('networkNavigationStatus');
+      if (status) status.textContent = '打开 Obsidian 失败，请重试';
+    }).finally(() => link.removeAttribute('aria-busy'));
+  });
+  networkContext.appendChild(link);
+}
+function renderNetworkContext(cur) {
+  networkContext.replaceChildren();
+  const network = cur && typeof cur.network === 'object' && cur.network !== null ? cur.network : null;
+  const hasLinks = cur && (typeof cur.obsidianUrl === 'string' || typeof cur.networkViewUrl === 'string');
+  if (!network && !hasLinks) {
+    networkContext.hidden = true;
+    return;
+  }
+  networkContext.hidden = false;
+  const types = Array.isArray(network?.networkTypes) && network.networkTypes.length > 0
+    ? network.networkTypes.join(' · ') : (typeof network?.nodeType === 'string' ? network.nodeType : 'paper');
+  appendNetworkText(`网络类型：${types}`);
+  for (const [label, rows] of [['概念', network?.concepts], ['任务', network?.tasks], ['方法', network?.methods]]) {
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    appendNetworkText(`${label}：`);
+    for (const row of rows.slice(0, 3)) {
+      const name = typeof row?.label === 'string' ? row.label : row?.id;
+      if (typeof name === 'string') appendNetworkLink(name, typeof row.card === 'string' ? `obsidian://open?vault=llm-wiki&file=${encodeURIComponent(row.card)}` : '', row.id);
+    }
+  }
+  appendNetworkLink('打开卡片', cur?.obsidianUrl, cur?.canonicalCard);
+  appendNetworkLink('网络视图', cur?.networkViewUrl, cur?.paper_id);
+  const status = document.createElement('span');
+  status.id = 'networkNavigationStatus';
+  status.setAttribute('role', 'status');
+  networkContext.appendChild(status);
+}
+if (!followMode) applyTitle(currentTitle);
+
+/* ---------- 工具 ---------- */
+function fileUrl(p) { return '/file?path=' + encodeURIComponent(p); }
+
+/* ---------- 页码同步 ---------- */
+const syncToggle = document.getElementById('syncToggle');
+function syncEnabled() { return syncToggle.checked; }
+
+/* ---------- 滚轮翻页开关 ---------- */
+const WHEEL_KEY = 'dsh-reader-wheel';
+const wheelToggle = document.getElementById('wheelToggle');
+try { wheelToggle.checked = localStorage.getItem(WHEEL_KEY) !== '0'; } catch (e) { wheelToggle.checked = true; }
+wheelToggle.addEventListener('change', () => {
+  try { localStorage.setItem(WHEEL_KEY, wheelToggle.checked ? '1' : '0'); } catch (e) {}
+});
+function wheelEnabled() { return wheelToggle.checked; }
+
+/* ---------- 单栏视图 ---------- */
+class Pane {
+  constructor(root, path, initPage) {
+    this.root = root;
+    this.path = path;
+    this.initPage = initPage || 1;
+    this.doc = null;
+    this.pageNum = 0;
+    this.scaleMode = 'fit';   // 'fit' | 'manual'
+    this.scale = 1.0;
+    this.lastScale = 1;
+    this.renderTask = null;
+    this.renderSeq = 0;
+    this.wheelAccum = 0;        // 当前手势累积滚动量
+    this.wheelLastTime = 0;     // 上一次 wheel 事件时间
+    this.wheelLockUntil = 0;    // 翻页后锁定期（惯性不连翻）
+
+    this.viewport = root.querySelector('.viewport');
+    this.pageInput = root.querySelector('.page-input');
+    this.pageTotal = root.querySelector('.page-total');
+    this.zoomLabel = root.querySelector('.zoom-label');
+
+    this.viewport.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+
+    root.querySelector('.btn-prev').addEventListener('click', () => this.goTo(this.pageNum - 1, true));
+    root.querySelector('.btn-next').addEventListener('click', () => this.goTo(this.pageNum + 1, true));
+    this.pageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { this.goTo(parseInt(this.pageInput.value, 10), true); this.pageInput.blur(); }
+    });
+    this.pageInput.addEventListener('change', () => this.goTo(parseInt(this.pageInput.value, 10), true));
+    root.querySelector('.btn-zoom-in').addEventListener('click', () => this.zoomBy(1.15));
+    root.querySelector('.btn-zoom-out').addEventListener('click', () => this.zoomBy(1 / 1.15));
+    root.querySelector('.btn-fit').addEventListener('click', () => { this.scaleMode = 'fit'; this.render(); });
+
+    window.addEventListener('resize', () => { if (this.scaleMode === 'fit') this.render(); });
+  }
+
+  setStatus(msg, isError, detail) {
+    this.viewport.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'pane-status' + (isError ? ' error' : '');
+    div.textContent = msg;
+    if (detail) {
+      const d = document.createElement('div');
+      d.className = 'detail';
+      d.textContent = detail;
+      div.appendChild(d);
+    }
+    this.viewport.appendChild(div);
+  }
+
+  /* 换文档（跟随模式用）：保留缩放模式，重置到 initPage */
+  async loadDoc(path, page) {
+    this.path = path;
+    this.initPage = Math.max(1, parseInt(page, 10) || 1);
+    await this.load();
+  }
+
+  async load() {
+    const seq = ++this.renderSeq;   // 同时作废进行中的 render
+    if (this.renderTask) { try { this.renderTask.cancel(); } catch (e) {} this.renderTask = null; }
+    if (this.doc) { try { this.doc.destroy(); } catch (e) {} this.doc = null; }
+    if (!this.path) {
+      this.setStatus('未提供 PDF 路径（缺少查询参数）。', true);
+      return;
+    }
+    this.setStatus('正在载入 PDF…');
+    const pathAtStart = this.path;
+    let doc;
+    try {
+      doc = await pdfjsLib.getDocument({ url: fileUrl(pathAtStart) }).promise;
+    } catch (err) {
+      if (seq === this.renderSeq) {
+        this.setStatus('PDF 加载失败：' + (err && err.message ? err.message : String(err)), true,
+          '路径：' + pathAtStart);
+      }
+      return;
+    }
+    if (seq !== this.renderSeq || this.path !== pathAtStart) {
+      // 加载期间又切换了文档，丢弃本次结果
+      try { doc.destroy(); } catch (e) {}
+      return;
+    }
+    this.doc = doc;
+    this.pageTotal.textContent = '/ ' + doc.numPages;
+    this.pageNum = Math.min(Math.max(1, this.initPage), doc.numPages);
+    await this.render();
+  }
+
+  clampPage(n) {
+    if (!this.doc) return 0;
+    if (!Number.isFinite(n)) n = this.pageNum || 1;
+    return Math.min(Math.max(1, Math.round(n)), this.doc.numPages);
+  }
+
+  /* 清空当前文档并重置页码指示（空态/换文档前用） */
+  clear() {
+    this.renderSeq++;   // 作废进行中的 render/load
+    if (this.renderTask) { try { this.renderTask.cancel(); } catch (e) {} this.renderTask = null; }
+    if (this.doc) { try { this.doc.destroy(); } catch (e) {} this.doc = null; }
+    this.pageNum = 0;
+    this.pageInput.value = '-';
+    this.pageTotal.textContent = '/ -';
+  }
+
+  async goTo(n, userInitiated) {
+    if (!this.doc) return;
+    const target = this.clampPage(n);
+    if (target === this.pageNum) { this.pageInput.value = this.pageNum; return; }
+    this.pageNum = target;
+    this.scrollReset = true;   // 翻页后回到页首（避免浏览器 scroll anchoring 记住旧位置）
+    await this.render();
+    if (userInitiated && syncEnabled()) {
+      const other = panes.find(p => p !== this && p.doc && !p.root.hidden);
+      if (other) other.followPage(target);
+    }
+  }
+
+  followPage(n) {
+    if (!this.doc) return;
+    this.pageNum = this.clampPage(n);
+    this.scrollReset = true;
+    this.render();
+  }
+
+  zoomBy(factor) {
+    if (!this.doc) return;
+    if (this.scaleMode === 'fit') {
+      this.scale = this.lastScale;
+      this.scaleMode = 'manual';
+    }
+    this.scale = Math.min(6, Math.max(0.2, this.scale * factor));
+    this.render();
+  }
+
+  /* 滚轮翻页：累积 120px 翻一页；放大时先原生滚内部，到边缘才翻；一次手势只翻一页 */
+  onWheel(e) {
+    if (!wheelEnabled() || !this.doc) return;
+    if (e.ctrlKey) return;   // 触控板捏合缩放不翻页
+    const t = e.target;
+    if (t && t.closest && t.closest('textarea, input')) return;
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) dy *= 33;        // 行 → 像素
+    else if (e.deltaMode === 2) dy *= 120;  // 页 → 像素
+    if (dy === 0) return;
+
+    const vp = this.viewport;
+    if (this.scaleMode !== 'fit' && vp.scrollHeight > vp.clientHeight + 2) {
+      const atBottom = vp.scrollTop + vp.clientHeight >= vp.scrollHeight - 2;
+      const atTop = vp.scrollTop <= 2;
+      if ((dy > 0 && !atBottom) || (dy < 0 && !atTop)) {
+        this.wheelAccum = 0;   // 页面内部原生滚动，重置累积
+        return;
+      }
+    }
+    // 进入翻页判定区：阻止原生滚动（适应宽度 / 已滚到边缘）
+    e.preventDefault();
+    const now = Date.now();
+    if (now < this.wheelLockUntil) {
+      // 锁定期内事件仍到达 → 手势未结束，延长锁定（一次手势只翻一页）
+      this.wheelLockUntil = now + 300;
+      this.wheelLastTime = now;
+      return;
+    }
+    if (now - this.wheelLastTime > 300) this.wheelAccum = 0;   // 新手势
+    this.wheelLastTime = now;
+    this.wheelAccum += dy;
+    if (Math.abs(this.wheelAccum) < 120) return;
+    const dir = this.wheelAccum > 0 ? 1 : -1;
+    this.wheelAccum = 0;
+    const target = this.pageNum + dir;
+    if (target < 1 || target > this.doc.numPages) return;
+    this.wheelLockUntil = now + 300;
+    this.goTo(target, true);   // userInitiated → 走页码同步
+  }
+
+  async render() {
+    if (!this.doc) return;
+    const seq = ++this.renderSeq;
+    if (this.renderTask) { try { this.renderTask.cancel(); } catch (e) {} this.renderTask = null; }
+    try {
+      const page = await this.doc.getPage(this.pageNum);
+      if (seq !== this.renderSeq) return;
+      let scale = this.scale;
+      if (this.scaleMode === 'fit') {
+        const unscaled = page.getViewport({ scale: 1 });
+        const avail = this.viewport.clientWidth - 40;
+        scale = avail > 50 ? avail / unscaled.width : 1;
+      }
+      const dpr = window.devicePixelRatio || 1;
+      const viewport = page.getViewport({ scale: scale * dpr });
+      const cssViewport = page.getViewport({ scale });   // textLayer 用 CSS 尺度（内部自乘 pixelRatio）
+      this.viewport.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'page-wrap';
+      wrap.style.setProperty('--scale-factor', scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
+      canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
+      wrap.appendChild(canvas);
+      const textDiv = document.createElement('div');
+      textDiv.className = 'textLayer';
+      wrap.appendChild(textDiv);
+      this.viewport.appendChild(wrap);
+      this.renderTask = page.render({ canvasContext: canvas.getContext('2d'), viewport });
+      await this.renderTask.promise;
+      if (seq !== this.renderSeq) return;
+      // 可选中文本层：失败不影响画布渲染
+      try {
+        const textLayer = new pdfjsLib.TextLayer({
+          textContentSource: page.streamTextContent(),
+          container: textDiv,
+          viewport: cssViewport,
+        });
+        await textLayer.render();
+        if (seq !== this.renderSeq) return;
+      } catch (tlErr) {
+        console.warn('textLayer 渲染失败（不影响阅读）:', tlErr);
+      }
+      if (this.scrollReset) {
+        this.scrollReset = false;
+        this.viewport.scrollTop = 0;
+        this.viewport.scrollLeft = 0;
+      }
+      this.lastScale = scale;
+      this.pageInput.value = this.pageNum;
+      this.zoomLabel.textContent = this.scaleMode === 'fit' ? '适应宽度' : Math.round(scale * 100) + '%';
+      this.root.querySelector('.btn-prev').disabled = this.pageNum <= 1;
+      this.root.querySelector('.btn-next').disabled = this.pageNum >= this.doc.numPages;
+    } catch (err) {
+      if (err && err.name === 'RenderingCancelledException') return;
+      if (seq === this.renderSeq) {
+        this.setStatus('第 ' + this.pageNum + ' 页渲染失败：' + (err && err.message ? err.message : String(err)), true);
+      }
+    }
+  }
+}
+
+/* ---------- 栏宽拖拽手柄 ---------- */
+const SPLIT_KEY = 'dsh-reader-split';
+const splitter = document.getElementById('splitter');
+const leftPaneRoot = document.getElementById('pane-left');
+const rightPaneRoot = document.getElementById('pane-right');
+
+function getSplitPct() {
+  try {
+    const v = parseFloat(localStorage.getItem(SPLIT_KEY));
+    if (Number.isFinite(v)) return Math.min(75, Math.max(25, v));
+  } catch (e) {}
+  return 50;
+}
+function applySplit(pct) {
+  leftPaneRoot.style.flex = '0 0 ' + pct + '%';
+  rightPaneRoot.style.flex = '1 1 auto';
+}
+function clearSplit() {
+  leftPaneRoot.style.flex = '';
+  rightPaneRoot.style.flex = '';
+}
+function showSplitter() {
+  splitter.hidden = false;
+  applySplit(getSplitPct());
+}
+function hideSplitter() {
+  splitter.hidden = true;
+  clearSplit();
+}
+function refitVisiblePanes() {
+  panes.forEach(p => { if (!p.root.hidden && p.doc && p.scaleMode === 'fit') p.render(); });
+}
+
+let splitDragging = false;
+let splitRafPending = false;
+let splitLastPct = getSplitPct();
+splitter.addEventListener('pointerdown', (e) => {
+  splitDragging = true;
+  splitter.classList.add('dragging');
+  splitter.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+splitter.addEventListener('pointermove', (e) => {
+  if (!splitDragging) return;
+  const rect = document.getElementById('main').getBoundingClientRect();
+  const usable = rect.width - splitter.offsetWidth;
+  if (usable <= 0) return;
+  let pct = ((e.clientX - rect.left) / usable) * 100;
+  splitLastPct = Math.min(75, Math.max(25, pct));
+  applySplit(splitLastPct);
+  if (!splitRafPending) {
+    splitRafPending = true;
+    requestAnimationFrame(() => { splitRafPending = false; refitVisiblePanes(); });
+  }
+});
+function endSplitDrag() {
+  if (!splitDragging) return;
+  splitDragging = false;
+  splitter.classList.remove('dragging');
+  try { localStorage.setItem(SPLIT_KEY, String(splitLastPct)); } catch (e) {}
+  refitVisiblePanes();
+}
+splitter.addEventListener('pointerup', endSplitDrag);
+splitter.addEventListener('pointercancel', endSplitDrag);
+
+/* ---------- 构建栏 ---------- */
+const panes = [];
+const startPage = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
+const leftPane = new Pane(document.getElementById('pane-left'), followMode ? '' : leftPath, startPage);
+panes.push(leftPane);
+let rightPane = null;
+
+function ensureRightPane() {
+  if (rightPane) return rightPane;
+  const rightRoot = document.getElementById('pane-right');
+  rightRoot.hidden = false;
+  rightPane = new Pane(rightRoot, '', 1);
+  panes.push(rightPane);
+  showSplitter();
+  return rightPane;
+}
+function hideRightPane() {
+  if (!rightPane) return;
+  rightPane.clear();
+  rightPane.root.hidden = true;
+  hideSplitter();
+}
+if (!followMode && rightPath) {
+  const rp = ensureRightPane();
+  rp.path = rightPath;
+  rp.initPage = startPage;
+}
+
+/* ---------- 已读状态 ---------- */
+const readToggle = document.getElementById('readToggle');
+let isRead = false;
+function refreshReadBtn() {
+  readToggle.textContent = isRead ? '已读（点击取消）' : '标记已读';
+  readToggle.className = isRead ? 'read' : 'unread';
+}
+async function initReadState() {
+  isRead = false;
+  refreshReadBtn();
+  readToggle.disabled = !leftPath;
+  if (!leftPath) return;
+  try {
+    const r = await bridgeFetch('/state?path=' + encodeURIComponent(leftPath));
+    if (r.ok) {
+      const data = await r.json();
+      isRead = !!data.read;
+    }
+  } catch (e) { /* 状态服务不可用时保持默认 */ }
+  refreshReadBtn();
+}
+readToggle.addEventListener('click', async () => {
+  if (!leftPath) return;
+  const next = !isRead;
+  readToggle.disabled = true;
+  try {
+    const r = await bridgeFetch('/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: leftPath, read: next })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    isRead = next;
+  } catch (e) {
+    readToggle.textContent = '保存失败，重试';
+    setTimeout(refreshReadBtn, 1500);
+  }
+  refreshReadBtn();
+  readToggle.disabled = false;
+});
+
+/* ---------- 键盘翻页 ---------- */
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+  if (e.key === 'ArrowLeft') { leftPane.goTo(leftPane.pageNum - 1, true); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { leftPane.goTo(leftPane.pageNum + 1, true); e.preventDefault(); }
+});
+
+/* ---------- 选区浮动按钮：发送到会话 / 复制 ---------- */
+const selBubble = document.getElementById('selBubble');
+const selSend = document.getElementById('selSend');
+const selCopy = document.getElementById('selCopy');
+let selInfo = null;   // { text, page }
+
+function hideSelBubble() {
+  selBubble.hidden = true;
+  selInfo = null;
+}
+function updateSelBubble() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hideSelBubble(); return; }
+  const text = sel.toString().trim();
+  if (!text) { hideSelBubble(); return; }
+  const range = sel.getRangeAt(0);
+  const startEl = range.startContainer.nodeType === 1
+    ? range.startContainer : range.startContainer.parentElement;
+  const endEl = range.endContainer.nodeType === 1
+    ? range.endContainer : range.endContainer.parentElement;
+  if (!startEl || !endEl || !startEl.closest('.textLayer') || !endEl.closest('.textLayer')) {
+    hideSelBubble(); return;
+  }
+  const paneRoot = startEl.closest('.pane');
+  const pane = panes.find(p => p.root === paneRoot);
+  const rect = range.getBoundingClientRect();
+  if (!rect || (rect.width === 0 && rect.height === 0)) { hideSelBubble(); return; }
+  selInfo = { text: sel.toString(), page: pane ? pane.pageNum : 0 };
+  selBubble.hidden = false;
+  const bw = selBubble.offsetWidth;
+  const bh = selBubble.offsetHeight;
+  let x = rect.left + rect.width / 2 - bw / 2;
+  let y = rect.top - bh - 8;
+  if (y < 4) y = rect.bottom + 8;
+  x = Math.max(4, Math.min(window.innerWidth - bw - 4, x));
+  selBubble.style.left = x + 'px';
+  selBubble.style.top = y + 'px';
+}
+let selRafPending = false;
+document.addEventListener('selectionchange', () => {
+  if (selRafPending) return;
+  selRafPending = true;
+  requestAnimationFrame(() => { selRafPending = false; updateSelBubble(); });
+});
+// 滚动后选区相对视口位置已变，直接收起，避免错位
+document.addEventListener('scroll', hideSelBubble, true);
+// 点按钮时保持文档选区不被 mousedown 清除
+selBubble.addEventListener('mousedown', (e) => e.preventDefault());
+
+selSend.addEventListener('click', () => {
+  if (!selInfo) return;
+  const title = currentTitle || document.getElementById('docTitle').textContent || '';
+  parent.postMessage({
+    source: 'dsh-reader',
+    type: 'selection',
+    text: selInfo.text,
+    page: selInfo.page,
+    title,
+    ...(currentThinkingPayload() === null ? {} : { thinking: currentThinkingPayload() }),
+  }, DSH_READER_PARENT_ORIGIN);
+  selSend.textContent = '已发送 ✓';
+  setTimeout(() => { selSend.textContent = '发送到会话'; }, 1200);
+  window.getSelection().removeAllRanges();
+  hideSelBubble();
+});
+selCopy.addEventListener('click', async () => {
+  if (!selInfo) return;
+  try {
+    await navigator.clipboard.writeText(selInfo.text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = selInfo.text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e2) {}
+    ta.remove();
+  }
+  selCopy.textContent = '已复制 ✓';
+  setTimeout(() => { selCopy.textContent = '复制'; }, 1200);
+});
+
+/* ---------- 跟随模式：轮询桥的 /current ---------- */
+let lastUpdatedAt = undefined;
+let currentRequestSeq = 0;   // undefined=尚未初始化
+
+function showEmptyState() {
+  leftPath = '';
+  rightPath = '';
+  currentThinkingIdentity = null;
+  applyTitle('');
+  renderNetworkContext(null);
+  hideRightPane();
+  leftPane.clear();
+  leftPane.setStatus('等待对话中打开论文…');
+  initReadState();
+}
+
+async function applyCurrent(cur) {
+  const followed = dshReaderFollowCurrentPayload(cur);
+  if (followed === null) {
+    showEmptyState();
+    return;
+  }
+  const current = followed.identity;
+  currentThinkingIdentity = current;
+  leftPath = current.left;
+  rightPath = current.right || '';
+  const page = Math.max(1, parseInt(current.page, 10) || 1);
+  applyTitle(current.title || '');
+  renderNetworkContext(current);
+  const jobs = [leftPane.loadDoc(leftPath, page)];
+  if (rightPath) {
+    jobs.push(ensureRightPane().loadDoc(rightPath, page));
+  } else {
+    hideRightPane();
+  }
+  await Promise.all(jobs);
+  initReadState();
+}
+
+async function pollCurrent() {
+  const requestSeq = ++currentRequestSeq;
+  let cur;
+  try {
+    const r = await bridgeFetch('/current');
+    if (!r.ok) return;   // 桥暂不可达：保持现状
+    cur = await r.json();
+  } catch (e) {
+    return;              // 网络错误：保持现状
+  }
+  if (requestSeq !== currentRequestSeq) return;
+  const uat = (cur && cur.left && cur.updatedAt != null) ? String(cur.updatedAt) : null;
+  const nextRight = cur && typeof cur.right === 'string' ? cur.right : '';
+  if (uat === lastUpdatedAt && nextRight === rightPath) return;   // updatedAt 与镜像栏均无变化才跳过
+  if (typeof uat === 'string' && typeof lastUpdatedAt === 'string' && uat < lastUpdatedAt) return;
+  lastUpdatedAt = uat;
+  await applyCurrent(cur);
+}
+
+/* ---------- 启动 ---------- */
+(async () => {
+  if (followMode) {
+    await pollCurrent();                 // 立即渲染桥的当前论文（或空态）
+    setInterval(pollCurrent, 2000);      // 之后每 2s 轮询
+  } else {
+    initReadState();
+    await Promise.all(panes.map(p => p.load()));
+  }
+})();
+</script>
+</body>
+</html>

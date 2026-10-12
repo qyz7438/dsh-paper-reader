@@ -1,0 +1,24 @@
+{
+  "name": "dsh-reader",
+  "version": "0.2.0",
+  "description": "DSH 论文阅读器插件：前端常驻三栏阅读工作区（sidebar 槽内嵌中英双栏 iframe）+ 阅读队列工具（打开/下一篇/过/状态/回写思考）",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout"
+      ],
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

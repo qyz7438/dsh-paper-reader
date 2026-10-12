@@ -1,0 +1,24 @@
+# Dependencies & caches
+node_modules/
+__pycache__/
+*.pyc
+
+# Runtime logs
+*.log
+
+# Personal reading data (user-specific, never publish)
+papers.json
+papers.json.*
+papers.v1-backup-*.json
+papers.v2.json
+papers.v2.json.*
+papers.v2-backup-*.json
+reader-state.json
+reader-state.json.*
+reader-queue.json
+reader-queue.json.*
+reader-advance-journal.json
+reader-advance-journal.json.*
+
+# Verification scratch space
+verify/
